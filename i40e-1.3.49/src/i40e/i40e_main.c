@@ -127,6 +127,11 @@ MODULE_VERSION(DRV_VERSION);
 
 static struct workqueue_struct *i40e_wq;
 
+#if defined(CONFIG_NETMAP) || defined(CONFIG_NETMAP_MODULE)
+#define NETMAP_I40E_MAIN
+#include <i40e_netmap_linux.h>
+#endif
+
 /**
  * i40e_get_lump - find a lump of free generic resource
  * @pf: board private structure
@@ -3141,6 +3146,10 @@ static int i40e_configure_tx_ring(struct i40e_ring *ring)
 	/* cache tail off for easier writes later */
 	ring->tail = hw->hw_addr + I40E_QTX_TAIL(pf_q);
 
+#ifdef DEV_NETMAP
+   i40e_netmap_configure_tx_ring(ring);
+#endif /* DEV_NETMAP */
+
 	return 0;
 }
 
@@ -3225,6 +3234,11 @@ static int i40e_configure_rx_ring(struct i40e_ring *ring)
 	/* cache tail for quicker writes, and clear the reg before use */
 	ring->tail = hw->hw_addr + I40E_QRX_TAIL(pf_q);
 	writel(0, ring->tail);
+
+#ifdef DEV_NETMAP
+   if (i40e_netmap_configure_rx_ring(ring))
+       return 0;
+#endif /* DEV_NETMAP */
 
 	if (ring_is_ps_enabled(ring)) {
 		i40e_alloc_rx_headers(ring);
@@ -9725,6 +9739,11 @@ int i40e_vsi_release(struct i40e_vsi *vsi)
 		return -ENODEV;
 	}
 
+#ifdef DEV_NETMAP
+   if (vsi->netdev_registered)
+       netmap_detach(vsi->netdev);
+#endif
+
 	uplink_seid = vsi->uplink_seid;
 	if (vsi->type != I40E_VSI_SRIOV) {
 		if (vsi->netdev_registered) {
@@ -10076,6 +10095,12 @@ struct i40e_vsi *i40e_vsi_setup(struct i40e_pf *pf, u8 type,
 		/* no netdev or rings for the other VSI types */
 		break;
 	}
+
+#ifdef DEV_NETMAP
+   if (vsi->netdev_registered)
+       i40e_netmap_attach(vsi);
+#endif
+
 	return vsi;
 
 err_rings:
